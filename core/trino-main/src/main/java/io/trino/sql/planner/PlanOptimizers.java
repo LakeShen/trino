@@ -323,6 +323,7 @@ public class PlanOptimizers
         ImmutableList.Builder<PlanOptimizer> builder = ImmutableList.builder();
 
         Metadata metadata = plannerContext.getMetadata();
+        // 列裁剪的优化规则，自顶向下传递需要的字段
         Set<Rule<?>> columnPruningRules = columnPruningRules(metadata);
 
         Set<Rule<?>> projectionPushdownRules = ImmutableSet.of(
@@ -343,7 +344,7 @@ public class PlanOptimizers
                 new PushDownDereferencesThroughTopN(typeAnalyzer),
                 new PushDownDereferencesThroughRowNumber(typeAnalyzer),
                 new PushDownDereferencesThroughTopNRanking(typeAnalyzer));
-
+        // Limit Push Down，和 Filter 类似
         Set<Rule<?>> limitPushdownRules = ImmutableSet.of(
                 new PushLimitThroughOffset(),
                 new PushLimitThroughProject(typeAnalyzer),
@@ -368,6 +369,7 @@ public class PlanOptimizers
                 .addAll(new UnwrapCastInComparison(plannerContext, typeAnalyzer).rules())
                 .addAll(new UnwrapDateTruncInComparison(plannerContext, typeAnalyzer).rules())
                 .addAll(new UnwrapYearInComparison(plannerContext, typeAnalyzer).rules())
+                // 移除重复的条件，比如 a=1 and a=1，变成 a = 1
                 .addAll(new RemoveDuplicateConditions(metadata).rules())
                 .addAll(new CanonicalizeExpressions(plannerContext, typeAnalyzer).rules())
                 .addAll(new RemoveRedundantDateTrunc(plannerContext, typeAnalyzer).rules())
@@ -413,21 +415,29 @@ public class PlanOptimizers
                         statsCalculator,
                         costCalculator,
                         ImmutableSet.<Rule<?>>builder()
+                                // 列裁剪，自顶向下传递需要的字段
                                 .addAll(columnPruningRules)
+                                // Project 下推
                                 .addAll(projectionPushdownRules)
+                                // Limit 下推
                                 .addAll(limitPushdownRules)
                                 .addAll(new UnwrapRowSubscript().rules())
                                 .addAll(new PushCastIntoRow().rules())
                                 .addAll(ImmutableSet.of(
                                         new ImplementTableFunctionSource(metadata),
                                         new UnwrapSingleColumnRowInApply(typeAnalyzer),
+                                        // 移除 Union Empty 的分支
                                         new RemoveEmptyUnionBranches(),
+                                        // 有任何一个输入时 Empty，交集为空
                                         new EvaluateEmptyIntersect(),
                                         new RemoveEmptyExceptBranches(),
                                         new MergeFilters(metadata),
                                         new InlineProjections(plannerContext, typeAnalyzer),
+                                        // 移除多余的 Project，没有做任何操作的 Project
                                         new RemoveRedundantIdentityProjections(),
+                                        // 移除 100% 抽样
                                         new RemoveFullSample(),
+                                        // 使用 values 替换 0% 抽样
                                         new EvaluateZeroSample(),
                                         new PushOffsetThroughProject(),
                                         new MergeLimits(),
@@ -435,6 +445,7 @@ public class PlanOptimizers
                                         new MergeLimitOverProjectWithSort(),
                                         new MergeLimitWithTopN(),
                                         new RemoveTrivialFilters(),
+                                        // 移除多余的 Limit，当 Limit 的输入的 RowCNT 小于 Limit 的 Fetch
                                         new RemoveRedundantLimit(),
                                         new RemoveRedundantOffset(),
                                         new RemoveRedundantSort(),

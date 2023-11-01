@@ -50,6 +50,7 @@ public class IcebergTableHandle
     private final Map<String, String> storageProperties;
 
     // Filter used during split generation and table scan, but not required to be strictly enforced by Iceberg Connector
+    // 这个 Filter 上层还是会保留
     private final TupleDomain<IcebergColumnHandle> unenforcedPredicate;
 
     // Filter guaranteed to be enforced by Iceberg connector
